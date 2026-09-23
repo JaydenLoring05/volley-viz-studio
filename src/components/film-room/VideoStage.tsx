@@ -41,7 +41,6 @@ export function VideoStage({
   return (
     <div className="bg-black">
       <div
-        ref={undefined}
         onPointerDown={handleTap}
         className="relative mx-auto touch-none select-none"
         style={{
