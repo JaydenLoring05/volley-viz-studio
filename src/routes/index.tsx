@@ -107,14 +107,9 @@ function FilmRoom() {
   const handleFile = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
-    const probe = document.createElement("video");
-    const canPlay = file.type ? probe.canPlayType(file.type) : "";
-    if (file.type && canPlay === "") {
-      setLoadError(
-        `This browser can't play ${file.type || "that format"}. Try an .mp4 (H.264) export of the clip.`,
-      );
-      return;
-    }
+    // Load it and let the <video> element be the judge; if it can't decode the
+    // file the error handler shows a clear message.
+
     if (src) URL.revokeObjectURL(src);
     setSrc(URL.createObjectURL(file));
     setFileName(file.name);
