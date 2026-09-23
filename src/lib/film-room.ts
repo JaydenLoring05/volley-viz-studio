@@ -109,29 +109,34 @@ export function drawShapes(
 
   for (const s of all) {
     const pts = s.points.map(px);
+    const [p0, p1, p2] = pts;
     stroke(s.color);
 
-    if (s.tool === "line" && pts.length === 2) {
+    if (s.tool === "line" && p0 && p1) {
       ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      ctx.lineTo(pts[1].x, pts[1].y);
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
       ctx.stroke();
     }
 
-    if (s.tool === "angle" && pts.length >= 2) {
+    if (s.tool === "angle" && p0 && p1) {
       ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      if (p2) ctx.lineTo(p2.x, p2.y);
       ctx.stroke();
 
-      if (pts.length === 3) {
-        const deg = angleAt(s.points[0], s.points[1], s.points[2]);
+      const n0 = s.points[0];
+      const n1 = s.points[1];
+      const n2 = s.points[2];
+      if (p2 && n0 && n1 && n2) {
+        const deg = angleAt(n0, n1, n2);
         const r = 14 * unit;
-        const a1 = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
-        const a2 = Math.atan2(pts[2].y - pts[1].y, pts[2].x - pts[1].x);
+        const a1 = Math.atan2(p0.y - p1.y, p0.x - p1.x);
+        const a2 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
         ctx.beginPath();
         ctx.lineWidth = 1.6 * unit;
-        ctx.arc(pts[1].x, pts[1].y, r, a1, a2, shouldAnticlockwise(a1, a2));
+        ctx.arc(p1.x, p1.y, r, a1, a2, shouldAnticlockwise(a1, a2));
         ctx.stroke();
 
         const text = `${deg.toFixed(1)}\u00B0`;
@@ -139,8 +144,8 @@ export function drawShapes(
         ctx.font = `700 ${13 * unit}px ui-monospace, monospace`;
         ctx.textBaseline = "middle";
         const tw = ctx.measureText(text).width;
-        const lx = pts[1].x + 18 * unit;
-        const ly = pts[1].y - 18 * unit;
+        const lx = p1.x + 18 * unit;
+        const ly = p1.y - 18 * unit;
         ctx.fillStyle = "rgba(0,0,0,0.72)";
         roundRect(ctx, lx - 4 * unit, ly - 10 * unit, tw + 8 * unit, 20 * unit, 4 * unit);
         ctx.fill();
@@ -149,16 +154,17 @@ export function drawShapes(
       }
     }
 
-    if (s.tool === "circle" && pts.length === 2) {
-      const r = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    if (s.tool === "circle" && p0 && p1) {
+      const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
       ctx.beginPath();
-      ctx.arc(pts[0].x, pts[0].y, Math.max(r, 3 * unit), 0, Math.PI * 2);
+      ctx.arc(p0.x, p0.y, Math.max(r, 3 * unit), 0, Math.PI * 2);
       ctx.stroke();
     }
 
     ctx.shadowBlur = 0;
     for (const p of s.points) dot(p, s.color);
   }
+
 }
 
 function shouldAnticlockwise(a1: number, a2: number) {
