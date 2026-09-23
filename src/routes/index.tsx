@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Upload } from "lucide-react";
+import { Camera, Upload, Youtube } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { VideoStage } from "@/components/film-room/VideoStage";
@@ -8,6 +8,8 @@ import { PlaybackControls } from "@/components/film-room/PlaybackControls";
 import { DrawTools } from "@/components/film-room/DrawTools";
 import { CaptureDialog } from "@/components/film-room/CaptureDialog";
 import { Gallery } from "@/components/film-room/Gallery";
+import { YouTubeStage, type YouTubePlayer } from "@/components/film-room/YouTubeStage";
+import { YouTubeDialog } from "@/components/film-room/YouTubeDialog";
 import {
   POINTS_NEEDED,
   colorCss,
@@ -23,6 +25,15 @@ import {
   type Shape,
   type ToolId,
 } from "@/lib/film-room";
+import { parseYouTubeId } from "@/lib/youtube";
+
+const UPLOAD_RATES = [0.1, 0.25, 0.5, 1];
+const YOUTUBE_RATES = [0.25, 0.5, 1];
+
+// YouTube IFrame API player states this screen reacts to.
+const YT_ENDED = 0;
+const YT_PLAYING = 1;
+const YT_PAUSED = 2;
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -75,8 +86,17 @@ function FilmRoom() {
   const [relabelId, setRelabelId] = useState<string | null>(null);
   const [zipping, setZipping] = useState(false);
 
+  const [mode, setMode] = useState<"upload" | "youtube">("upload");
+  const [ytId, setYtId] = useState<string | null>(null);
+  const [ytOpen, setYtOpen] = useState(false);
+  const playerRef = useRef<YouTubePlayer | null>(null);
+
   const frame = Math.round(time * fps);
   const shapes = annotations.frame === frame ? annotations.shapes : [];
+  const pendingShape = pending.length
+    ? { tool, color: colorCss(color), points: pending }
+    : null;
+  const hasStage = mode === "youtube" ? !!ytId : !!src;
 
   // Drawings belong to a single frame — moving off it clears the overlay.
   useEffect(() => {
@@ -88,25 +108,34 @@ function FilmRoom() {
     if (v) v.playbackRate = speed;
   }, [speed, src]);
 
+  const readTime = useCallback(() => {
+    if (mode === "youtube") return playerRef.current?.getCurrentTime() ?? 0;
+    return videoRef.current?.currentTime ?? 0;
+  }, [mode]);
+
   // Smooth time readout while playing.
   useEffect(() => {
     if (!playing) return;
     const tick = () => {
-      const v = videoRef.current;
-      if (v) setTime(v.currentTime);
+      setTime(readTime());
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [playing]);
+  }, [playing, readTime]);
 
   const pickFile = () => fileInputRef.current?.click();
 
   const handleFile = (file: File | undefined) => {
     if (!file) return;
     setLoadError(null);
+    // Choosing a local clip leaves YouTube mode; unmounting the stage
+    // destroys the embedded player.
+    setMode("upload");
+    setYtId(null);
+    playerRef.current = null;
     // Load it and let the <video> element be the judge; if it can't decode the
     // file the error handler shows a clear message.
 
@@ -130,6 +159,13 @@ function FilmRoom() {
   };
 
   const togglePlay = useCallback(() => {
+    if (mode === "youtube") {
+      const p = playerRef.current;
+      if (!p) return;
+      if (p.getPlayerState() === YT_PLAYING) p.pauseVideo();
+      else p.playVideo();
+      return;
+    }
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
@@ -142,10 +178,23 @@ function FilmRoom() {
       setPlaying(false);
       setTime(v.currentTime);
     }
-  }, [speed]);
+  }, [mode, speed]);
 
   const step = useCallback(
     (dir: -1 | 1) => {
+      if (mode === "youtube") {
+        const p = playerRef.current;
+        if (!p) return;
+        p.pauseVideo();
+        setPlaying(false);
+        const next = Math.min(
+          Math.max(0, p.getCurrentTime() + dir / fps),
+          p.getDuration() || 0,
+        );
+        p.seekTo(next, true);
+        setTime(next);
+        return;
+      }
       const v = videoRef.current;
       if (!v) return;
       v.pause();
@@ -157,14 +206,64 @@ function FilmRoom() {
       v.currentTime = next;
       setTime(next);
     },
-    [fps],
+    [fps, mode],
   );
 
   const seek = (t: number) => {
+    if (mode === "youtube") {
+      const p = playerRef.current;
+      if (!p) return;
+      p.seekTo(t, true);
+      setTime(t);
+      return;
+    }
     const v = videoRef.current;
     if (!v) return;
     v.currentTime = t;
     setTime(t);
+  };
+
+  // YouTube's slowest rate is 0.25x, so 0.1x isn't offered there.
+  const changeSpeed = (s: number) => {
+    const rate = mode === "youtube" ? Math.max(0.25, s) : s;
+    setSpeed(rate);
+    if (mode === "youtube") playerRef.current?.setPlaybackRate(rate);
+  };
+
+  const openYouTube = (url: string) => {
+    const id = parseYouTubeId(url);
+    if (!id) {
+      toast.error("That doesn't look like a YouTube link.");
+      return;
+    }
+    setLoadError(null);
+    setMode("youtube");
+    setYtId(id);
+    setYtOpen(false);
+    setPlaying(false);
+    setTime(0);
+    setDuration(0);
+    setAnnotations({ frame: 0, shapes: [] });
+    setPending([]);
+    setSpeed((s) => Math.max(0.25, s));
+  };
+
+  const onYtReady = (player: YouTubePlayer) => {
+    playerRef.current = player;
+    setDuration(player.getDuration() || 0);
+    player.setPlaybackRate(Math.max(0.25, speed));
+    setLoadError(null);
+  };
+
+  const onYtState = (state: number) => {
+    const p = playerRef.current;
+    if (state === YT_PLAYING) setPlaying(true);
+    else if (state === YT_PAUSED || state === YT_ENDED) {
+      setPlaying(false);
+      setTime(p?.getCurrentTime() ?? 0);
+    }
+    const d = p?.getDuration() ?? 0;
+    if (d) setDuration(d);
   };
 
   // Desktop keyboard shortcuts.
@@ -302,18 +401,24 @@ function FilmRoom() {
   return (
     <div className="min-h-dvh bg-background pb-10">
       <header className="flex items-center justify-between gap-3 px-4 py-3">
-        <div>
-          <h1 className="text-2xl leading-none uppercase">
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl leading-none uppercase">
             Film <span className="text-primary">Room</span>
           </h1>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="truncate text-[11px] text-muted-foreground">
             {fileName || "Stays on your device"}
           </p>
         </div>
-        <Button variant="secondary" className="h-12" onClick={pickFile}>
-          <Upload className="size-5" />
-          {src ? "New clip" : "Upload"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" className="h-12 px-3" onClick={() => setYtOpen(true)}>
+            <Youtube className="size-5" />
+            YouTube
+          </Button>
+          <Button variant="secondary" className="h-12 px-3" onClick={pickFile}>
+            <Upload className="size-5" />
+            {src ? "New clip" : "Upload"}
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -329,26 +434,39 @@ function FilmRoom() {
         </p>
       ) : null}
 
-      {src ? (
+      {hasStage ? (
         <>
-          <VideoStage
-            videoRef={videoRef}
-            src={src}
-            aspect={aspect}
-            shapes={shapes}
-            pending={pending.length ? { tool, color: colorCss(color), points: pending } : null}
-            drawingEnabled={!playing}
-            onAddPoint={addPoint}
-            onLoaded={onLoaded}
-            onTimeUpdate={() => {
-              const v = videoRef.current;
-              if (v && v.paused) setTime(v.currentTime);
-            }}
-            onEnded={() => setPlaying(false)}
-            onError={() =>
-              setLoadError("This browser can't play that file. Try an .mp4 (H.264) version.")
-            }
-          />
+          {mode === "youtube" ? (
+            <YouTubeStage
+              videoId={ytId ?? ""}
+              shapes={shapes}
+              pending={pendingShape}
+              drawingEnabled={!playing}
+              onAddPoint={addPoint}
+              onReady={onYtReady}
+              onStateChange={onYtState}
+              onError={(message) => setLoadError(message)}
+            />
+          ) : (
+            <VideoStage
+              videoRef={videoRef}
+              src={src}
+              aspect={aspect}
+              shapes={shapes}
+              pending={pendingShape}
+              drawingEnabled={!playing}
+              onAddPoint={addPoint}
+              onLoaded={onLoaded}
+              onTimeUpdate={() => {
+                const v = videoRef.current;
+                if (v && v.paused) setTime(v.currentTime);
+              }}
+              onEnded={() => setPlaying(false)}
+              onError={() =>
+                setLoadError("This browser can't play that file. Try an .mp4 (H.264) version.")
+              }
+            />
+          )}
 
           <PlaybackControls
             playing={playing}
@@ -357,10 +475,11 @@ function FilmRoom() {
             frame={frame}
             fps={fps}
             speed={speed}
+            rates={mode === "youtube" ? YOUTUBE_RATES : UPLOAD_RATES}
             onToggle={togglePlay}
             onStep={step}
             onSeek={seek}
-            onSpeed={setSpeed}
+            onSpeed={changeSpeed}
             onFps={setFps}
           />
 
@@ -375,16 +494,25 @@ function FilmRoom() {
             onClear={clearDrawings}
           />
 
-          <div className="px-4 py-4">
-            <Button
-              className="h-16 w-full text-base font-semibold"
-              disabled={playing}
-              onClick={() => setCaptureOpen(true)}
-            >
-              <Camera className="size-6" />
-              Capture Frame · {formatTime(time)}
-            </Button>
-          </div>
+          {mode === "youtube" ? (
+            <div className="px-4 py-4">
+              <p className="rounded-md border border-border bg-surface px-3 py-3 text-sm text-muted-foreground">
+                Capture unavailable for YouTube — take a phone screenshot, or download the video
+                from YouTube Studio and upload it for full features.
+              </p>
+            </div>
+          ) : (
+            <div className="px-4 py-4">
+              <Button
+                className="h-16 w-full text-base font-semibold"
+                disabled={playing}
+                onClick={() => setCaptureOpen(true)}
+              >
+                <Camera className="size-6" />
+                Capture Frame · {formatTime(time)}
+              </Button>
+            </div>
+          )}
         </>
       ) : (
         <div className="px-4 py-10">
@@ -430,6 +558,8 @@ function FilmRoom() {
         onOpenChange={(o) => !o && setRelabelId(null)}
         onSubmit={applyRelabel}
       />
+
+      <YouTubeDialog open={ytOpen} onOpenChange={setYtOpen} onSubmit={openYouTube} />
     </div>
   );
 }
