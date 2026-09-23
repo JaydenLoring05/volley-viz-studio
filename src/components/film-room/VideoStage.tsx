@@ -1,12 +1,13 @@
-import { useEffect, useRef, type RefObject } from "react";
-import { drawShapes, type Point, type Shape, type ToolId } from "@/lib/film-room";
+import { type RefObject } from "react";
+import { StageCanvas } from "@/components/film-room/StageCanvas";
+import type { PendingShape, Point, Shape } from "@/lib/film-room";
 
 type Props = {
   videoRef: RefObject<HTMLVideoElement | null>;
   src: string | null;
   aspect: number;
   shapes: Shape[];
-  pending: { tool: ToolId; color: string; points: Point[] } | null;
+  pending: PendingShape | null;
   drawingEnabled: boolean;
   onAddPoint: (p: Point) => void;
   onLoaded: () => void;
@@ -28,31 +29,6 @@ export function VideoStage({
   onEnded,
   onError,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const box = boxRef.current;
-    if (!canvas || !box) return;
-
-    const paint = () => {
-      const rect = box.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawShapes(ctx, shapes, pending, canvas.width, canvas.height);
-    };
-
-    paint();
-    const ro = new ResizeObserver(paint);
-    ro.observe(box);
-    return () => ro.disconnect();
-  }, [shapes, pending]);
-
   const handleTap = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawingEnabled) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -65,10 +41,14 @@ export function VideoStage({
   return (
     <div className="bg-black">
       <div
-        ref={boxRef}
         onPointerDown={handleTap}
-        className="relative mx-auto w-full touch-none select-none"
-        style={{ aspectRatio: String(aspect) }}
+        className="relative mx-auto touch-none select-none"
+        style={{
+          // Keep the exact video aspect while capping the stage at 70vh, so
+          // portrait clips stay on screen instead of running past the fold.
+          width: `min(100%, ${(70 * aspect).toFixed(2)}vh)`,
+          aspectRatio: String(aspect),
+        }}
       >
         {src ? (
           <video
@@ -84,7 +64,7 @@ export function VideoStage({
             onError={onError}
           />
         ) : null}
-        <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+        <StageCanvas shapes={shapes} pending={pending} />
       </div>
     </div>
   );

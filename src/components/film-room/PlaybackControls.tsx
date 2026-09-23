@@ -13,6 +13,7 @@ type Props = {
   frame: number;
   fps: number;
   speed: number;
+  rates?: readonly number[];
   onToggle: () => void;
   onStep: (dir: -1 | 1) => void;
   onSeek: (t: number) => void;
@@ -27,6 +28,7 @@ export function PlaybackControls({
   frame,
   fps,
   speed,
+  rates = SPEEDS,
   onToggle,
   onStep,
   onSeek,
@@ -80,8 +82,11 @@ export function PlaybackControls({
 
       <div className="flex items-center gap-2">
         <span className="eyebrow w-12 shrink-0">Speed</span>
-        <div className="grid flex-1 grid-cols-4 gap-2">
-          {SPEEDS.map((s) => (
+        <div
+          className="grid flex-1 gap-2"
+          style={{ gridTemplateColumns: `repeat(${rates.length}, minmax(0, 1fr))` }}
+        >
+          {rates.map((s) => (
             <button
               key={s}
               onClick={() => onSpeed(s)}
