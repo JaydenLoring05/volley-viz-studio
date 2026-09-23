@@ -25,6 +25,8 @@ export type ToolId = "line" | "angle" | "circle";
 
 export type Point = { x: number; y: number };
 
+export type PendingShape = { tool: ToolId; color: string; points: Point[] };
+
 export type Shape = {
   id: string;
   tool: ToolId;
@@ -75,7 +77,7 @@ export function angleAt(a: Point, b: Point, c: Point) {
 export function drawShapes(
   ctx: CanvasRenderingContext2D,
   shapes: Shape[],
-  pending: { tool: ToolId; color: string; points: Point[] } | null,
+  pending: PendingShape | null,
   w: number,
   h: number,
 ) {

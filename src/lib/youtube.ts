@@ -33,7 +33,7 @@ export function parseYouTubeId(input: string): string | null {
   if (ID_RE.test(query)) return query;
 
   const path = url.pathname.match(/\/(shorts|embed|live|v)\/([A-Za-z0-9_-]{11})/);
-  if (path) return path[2];
+  if (path?.[2]) return path[2];
 
   return null;
 }
