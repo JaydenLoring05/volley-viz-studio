@@ -130,7 +130,7 @@ export function drawShapes(
       const n1 = s.points[1];
       const n2 = s.points[2];
       if (p2 && n0 && n1 && n2) {
-        const deg = angleAt(n0, n1, n2);
+        const deg = angleAt(p0, p1, p2);
         const r = 14 * unit;
         const a1 = Math.atan2(p0.y - p1.y, p0.x - p1.x);
         const a2 = Math.atan2(p2.y - p1.y, p2.x - p1.x);

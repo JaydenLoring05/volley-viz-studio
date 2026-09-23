@@ -67,8 +67,13 @@ export function VideoStage({
       <div
         ref={boxRef}
         onPointerDown={handleTap}
-        className="relative mx-auto w-full touch-none select-none"
-        style={{ aspectRatio: String(aspect) }}
+        className="relative mx-auto touch-none select-none"
+        style={{
+          // Keep the exact video aspect while capping the stage at 70vh, so
+          // portrait clips stay on screen instead of running past the fold.
+          width: `min(100%, ${(70 * aspect).toFixed(2)}vh)`,
+          aspectRatio: String(aspect),
+        }}
       >
         {src ? (
           <video

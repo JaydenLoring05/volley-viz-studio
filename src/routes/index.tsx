@@ -173,6 +173,8 @@ function FilmRoom() {
       const el = e.target as HTMLElement | null;
       if (el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return;
       if (e.code === "Space") {
+        // A focused button activates on Space itself — don't also toggle play.
+        if (el?.tagName === "BUTTON") return;
         e.preventDefault();
         togglePlay();
       } else if (e.key === "ArrowLeft") {
@@ -438,5 +440,6 @@ function downloadBlob(blob: Blob, name: string) {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  // Safari can abort the download if the URL is revoked immediately.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
